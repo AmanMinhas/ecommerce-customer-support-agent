@@ -19,6 +19,8 @@ services:
     build: .
     environment:
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      JWT_EXPIRY_MINUTES: ${JWT_EXPIRY_MINUTES:-30}
     command: ["alembic", "upgrade", "head"]
     depends_on:
       db:
@@ -28,6 +30,8 @@ services:
     build: .
     environment:
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      JWT_EXPIRY_MINUTES: ${JWT_EXPIRY_MINUTES:-30}
     ports:
       - "8000:8000"
     depends_on:

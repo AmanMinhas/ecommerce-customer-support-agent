@@ -1,13 +1,14 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select, update
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.common import apply_updates, get_or_404
 from app.db import get_db
 from app.models import Address, Customer
+from app.permissions import PermissionCode
 from app.schemas import (
     AddressCreate,
     AddressRead,
@@ -15,9 +16,11 @@ from app.schemas import (
     CustomerCreate,
     CustomerRead,
     CustomerUpdate,
+    Page,
 )
+from app.security import require_permission
 
-router = APIRouter(tags=["customers"])
+router = APIRouter(tags=["admin customers"], dependencies=[Depends(require_permission(PermissionCode.ADMIN_ACCESS)), Depends(require_permission(PermissionCode.CUSTOMERS_MANAGE))])
 
 
 @router.post("/customers", response_model=CustomerRead, status_code=status.HTTP_201_CREATED)
@@ -92,3 +95,14 @@ def delete_address(address_id: uuid.UUID, db: Session = Depends(get_db)):
     db.delete(address)
     db.commit()
 
+
+
+@router.get("/customers", response_model=Page)
+def list_customers(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
+                   db: Session = Depends(get_db)) -> Page:
+    customers = db.scalars(select(Customer).options(selectinload(Customer.addresses))
+                           .order_by(Customer.email).offset((page - 1) * page_size)
+                           .limit(page_size)).all()
+    return Page(items=[CustomerRead.model_validate(c) for c in customers],
+                total=db.scalar(select(func.count()).select_from(Customer)) or 0,
+                page=page, page_size=page_size)

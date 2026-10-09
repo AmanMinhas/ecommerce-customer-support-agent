@@ -18,11 +18,11 @@ from app.models import (
     OrderStatus,
     OrderStatusHistory,
     Payment,
-    PaymentStatus,
     Product,
     Shipment,
     ShipmentStatus,
 )
+from app.permissions import PermissionCode
 from app.schemas import (
     OrderCreate,
     OrderRead,
@@ -35,8 +35,9 @@ from app.schemas import (
     StatusChange,
     StatusHistoryRead,
 )
+from app.security import require_permission
 
-router = APIRouter(tags=["orders"])
+router = APIRouter(tags=["admin orders"], dependencies=[Depends(require_permission(PermissionCode.ADMIN_ACCESS))])
 
 ALLOWED_TRANSITIONS = {
     OrderStatus.PLACED: {OrderStatus.CONFIRMED, OrderStatus.CANCELLED},
@@ -72,7 +73,7 @@ def next_order_number(db: Session) -> str:
             return candidate
 
 
-@router.post("/orders", response_model=OrderRead, status_code=status.HTTP_201_CREATED)
+@router.post("/orders", response_model=OrderRead, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission(PermissionCode.ORDERS_MANAGE))])
 def create_order(payload: OrderCreate, db: Session = Depends(get_db)):
     customer = get_or_404(db, Customer, payload.customer_id)
     address = db.scalar(
@@ -147,7 +148,7 @@ def create_order(payload: OrderCreate, db: Session = Depends(get_db)):
     return load_order(db, Order.id == order.id)
 
 
-@router.get("/orders", response_model=Page)
+@router.get("/orders", response_model=Page, dependencies=[Depends(require_permission(PermissionCode.ORDERS_READ_ALL))])
 def list_orders(
     customer_id: uuid.UUID | None = None,
     order_status: OrderStatus | None = Query(default=None, alias="status"),
@@ -169,17 +170,17 @@ def list_orders(
     return Page(items=[OrderRead.model_validate(x) for x in orders], total=total, page=page, page_size=page_size)
 
 
-@router.get("/orders/number/{order_number}", response_model=OrderRead)
+@router.get("/orders/number/{order_number}", response_model=OrderRead, dependencies=[Depends(require_permission(PermissionCode.ORDERS_READ_ALL))])
 def get_order_by_number(order_number: str, db: Session = Depends(get_db)):
     return load_order(db, Order.order_number == order_number)
 
 
-@router.get("/orders/{order_id}", response_model=OrderRead)
+@router.get("/orders/{order_id}", response_model=OrderRead, dependencies=[Depends(require_permission(PermissionCode.ORDERS_READ_ALL))])
 def get_order(order_id: uuid.UUID, db: Session = Depends(get_db)):
     return load_order(db, Order.id == order_id)
 
 
-@router.patch("/orders/{order_id}/status", response_model=OrderRead)
+@router.patch("/orders/{order_id}/status", response_model=OrderRead, dependencies=[Depends(require_permission(PermissionCode.ORDERS_MANAGE))])
 def change_status(order_id: uuid.UUID, payload: StatusChange, db: Session = Depends(get_db)):
     order = db.scalar(select(Order).where(Order.id == order_id).with_for_update())
     if not order:
@@ -188,9 +189,11 @@ def change_status(order_id: uuid.UUID, payload: StatusChange, db: Session = Depe
         raise HTTPException(409, f"Cannot transition from {order.status.value} to {payload.status.value}")
     previous = order.status
     order.status = payload.status
-    if payload.status == OrderStatus.SHIPPED:
+    if payload.status in {OrderStatus.SHIPPED, OrderStatus.CANCELLED}:
         for item in order.items:
             inventory = get_or_404(db, Inventory, item.product_id)
+            if payload.status == OrderStatus.CANCELLED:
+                inventory.quantity_available += item.quantity
             inventory.quantity_reserved = max(0, inventory.quantity_reserved - item.quantity)
     order.status_history.append(
         OrderStatusHistory(from_status=previous, to_status=payload.status, note=payload.note)
@@ -199,7 +202,7 @@ def change_status(order_id: uuid.UUID, payload: StatusChange, db: Session = Depe
     return load_order(db, Order.id == order_id)
 
 
-@router.post("/orders/{order_id}/cancel", response_model=OrderRead)
+@router.post("/orders/{order_id}/cancel", response_model=OrderRead, dependencies=[Depends(require_permission(PermissionCode.ORDERS_MANAGE))])
 def cancel_order(order_id: uuid.UUID, db: Session = Depends(get_db)):
     order = db.scalar(select(Order).where(Order.id == order_id).with_for_update())
     if not order:
@@ -219,7 +222,7 @@ def cancel_order(order_id: uuid.UUID, db: Session = Depends(get_db)):
     return load_order(db, Order.id == order_id)
 
 
-@router.get("/orders/{order_id}/status-history", response_model=list[StatusHistoryRead])
+@router.get("/orders/{order_id}/status-history", response_model=list[StatusHistoryRead], dependencies=[Depends(require_permission(PermissionCode.ORDERS_READ_ALL))])
 def get_status_history(order_id: uuid.UUID, db: Session = Depends(get_db)):
     get_or_404(db, Order, order_id)
     return db.scalars(
@@ -229,13 +232,13 @@ def get_status_history(order_id: uuid.UUID, db: Session = Depends(get_db)):
     ).all()
 
 
-@router.get("/orders/{order_id}/payments", response_model=list[PaymentRead])
+@router.get("/orders/{order_id}/payments", response_model=list[PaymentRead], dependencies=[Depends(require_permission(PermissionCode.ORDERS_READ_ALL))])
 def get_payments(order_id: uuid.UUID, db: Session = Depends(get_db)):
     get_or_404(db, Order, order_id)
     return db.scalars(select(Payment).where(Payment.order_id == order_id)).all()
 
 
-@router.post("/orders/{order_id}/payments", response_model=PaymentRead, status_code=201)
+@router.post("/orders/{order_id}/payments", response_model=PaymentRead, status_code=201, dependencies=[Depends(require_permission(PermissionCode.ORDERS_MANAGE))])
 def create_payment(order_id: uuid.UUID, payload: PaymentCreate, db: Session = Depends(get_db)):
     order = get_or_404(db, Order, order_id)
     payment = Payment(order_id=order.id, amount=order.total_amount, **payload.model_dump())
@@ -248,13 +251,13 @@ def create_payment(order_id: uuid.UUID, payload: PaymentCreate, db: Session = De
     return payment
 
 
-@router.get("/orders/{order_id}/shipments", response_model=list[ShipmentRead])
+@router.get("/orders/{order_id}/shipments", response_model=list[ShipmentRead], dependencies=[Depends(require_permission(PermissionCode.ORDERS_READ_ALL))])
 def get_shipments(order_id: uuid.UUID, db: Session = Depends(get_db)):
     get_or_404(db, Order, order_id)
     return db.scalars(select(Shipment).where(Shipment.order_id == order_id)).all()
 
 
-@router.post("/orders/{order_id}/shipments", response_model=ShipmentRead, status_code=201)
+@router.post("/orders/{order_id}/shipments", response_model=ShipmentRead, status_code=201, dependencies=[Depends(require_permission(PermissionCode.ORDERS_MANAGE))])
 def create_shipment(order_id: uuid.UUID, payload: ShipmentCreate, db: Session = Depends(get_db)):
     get_or_404(db, Order, order_id)
     shipment = Shipment(
@@ -271,7 +274,7 @@ def create_shipment(order_id: uuid.UUID, payload: ShipmentCreate, db: Session = 
     return shipment
 
 
-@router.patch("/shipments/{shipment_id}", response_model=ShipmentRead)
+@router.patch("/shipments/{shipment_id}", response_model=ShipmentRead, dependencies=[Depends(require_permission(PermissionCode.ORDERS_MANAGE))])
 def update_shipment(shipment_id: uuid.UUID, payload: ShipmentUpdate, db: Session = Depends(get_db)):
     shipment = get_or_404(db, Shipment, shipment_id)
     shipment.status = payload.status
