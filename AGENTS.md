@@ -59,6 +59,21 @@ These instructions apply throughout this repository. Follow them for every task.
 
 ## Implementation best practices
 
+- Apply SOLID principles to all code changes, with the simplest design that fits
+  the current requirements: keep responsibilities focused (single responsibility),
+  support extension through clear boundaries (open/closed), preserve contracts
+  when substituting implementations (Liskov substitution), keep interfaces small
+  and relevant to their callers (interface segregation), and separate business
+  logic from external dependencies (dependency inversion). Do not introduce class
+  hierarchies, interfaces, or layers solely to demonstrate these principles.
+- Keep code DRY wherever practical. Before adding logic, look for and reuse
+  suitable existing functions, services, validators, and utilities. Keep shared
+  business rules in one place and extract repeated logic when the abstraction
+  makes the code easier to understand and maintain.
+- Prefer clear, limited duplication when sharing code would require numerous
+  edge-case conditions, mode flags, or unrelated responsibilities in one function.
+  Do not force reuse between behaviors that only look similar; keep abstractions
+  focused on genuinely shared behavior and avoid speculative generalization.
 - Prefer small, readable functions and explicit names. Add type annotations to
   new or changed public interfaces. Avoid speculative abstractions, unnecessary
   dependencies, and unrelated cleanup.
