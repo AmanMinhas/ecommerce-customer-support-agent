@@ -1,0 +1,6 @@
+interface:
+  display_name: "Create PR"
+  short_description: "Branch, rebase, commit, push, and open a GitHub PR"
+  default_prompt: "Use $create-pr to open a PR for this project's current changes and share the link."
+policy:
+  allow_implicit_invocation: true
