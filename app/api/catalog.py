@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.api.common import apply_updates, get_or_404
 from app.db import get_db
 from app.models import Category, Inventory, Product
+from app.permissions import PermissionCode
 from app.schemas import (
     CategoryCreate,
     CategoryRead,
@@ -18,8 +19,10 @@ from app.schemas import (
     ProductRead,
     ProductUpdate,
 )
+from app.security import require_permission
 
 router = APIRouter(tags=["catalog"])
+admin_router = APIRouter(tags=["admin catalog"], dependencies=[Depends(require_permission(PermissionCode.ADMIN_ACCESS))])
 
 
 @router.get("/categories", response_model=list[CategoryRead])
@@ -27,7 +30,7 @@ def list_categories(db: Session = Depends(get_db)):
     return db.scalars(select(Category).order_by(Category.name)).all()
 
 
-@router.post("/categories", response_model=CategoryRead, status_code=status.HTTP_201_CREATED)
+@admin_router.post("/categories", response_model=CategoryRead, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission(PermissionCode.CATALOG_WRITE))])
 def create_category(payload: CategoryCreate, db: Session = Depends(get_db)):
     category = Category(**payload.model_dump())
     db.add(category)
@@ -67,13 +70,13 @@ def list_products(
 
 @router.get("/products/{product_id}", response_model=ProductRead)
 def get_product(product_id: uuid.UUID, db: Session = Depends(get_db)):
-    product = db.scalar(select(Product).options(selectinload(Product.inventory)).where(Product.id == product_id))
+    product = db.scalar(select(Product).options(selectinload(Product.inventory)).where(Product.id == product_id, Product.is_active.is_(True)))
     if not product:
         raise HTTPException(404, "Product not found")
     return product
 
 
-@router.post("/products", response_model=ProductRead, status_code=status.HTTP_201_CREATED)
+@admin_router.post("/products", response_model=ProductRead, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission(PermissionCode.CATALOG_WRITE))])
 def create_product(payload: ProductCreate, db: Session = Depends(get_db)):
     values = payload.model_dump(exclude={"quantity_available"})
     if values["category_id"] and not db.get(Category, values["category_id"]):
@@ -89,7 +92,7 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)):
     return product
 
 
-@router.patch("/products/{product_id}", response_model=ProductRead)
+@admin_router.patch("/products/{product_id}", response_model=ProductRead, dependencies=[Depends(require_permission(PermissionCode.CATALOG_WRITE))])
 def update_product(product_id: uuid.UUID, payload: ProductUpdate, db: Session = Depends(get_db)):
     product = get_or_404(db, Product, product_id)
     values = payload.model_dump(exclude_unset=True)
@@ -100,22 +103,46 @@ def update_product(product_id: uuid.UUID, payload: ProductUpdate, db: Session = 
     return product
 
 
-@router.delete("/products/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
+@admin_router.delete("/products/{product_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_permission(PermissionCode.CATALOG_WRITE))])
 def deactivate_product(product_id: uuid.UUID, db: Session = Depends(get_db)):
     product = get_or_404(db, Product, product_id)
     product.is_active = False
     db.commit()
 
 
-@router.get("/products/{product_id}/inventory", response_model=InventoryRead)
+@admin_router.get("/products/{product_id}/inventory", response_model=InventoryRead, dependencies=[Depends(require_permission(PermissionCode.INVENTORY_MANAGE))])
 def get_inventory(product_id: uuid.UUID, db: Session = Depends(get_db)):
     get_or_404(db, Product, product_id)
     return get_or_404(db, Inventory, product_id)
 
 
-@router.patch("/products/{product_id}/inventory", response_model=InventoryRead)
+@admin_router.patch("/products/{product_id}/inventory", response_model=InventoryRead, dependencies=[Depends(require_permission(PermissionCode.INVENTORY_MANAGE))])
 def update_inventory(product_id: uuid.UUID, payload: InventoryUpdate, db: Session = Depends(get_db)):
     inventory = get_or_404(db, Inventory, product_id)
     apply_updates(inventory, payload.model_dump(exclude_unset=True))
     db.commit()
     return inventory
+
+
+@admin_router.get("/products", response_model=Page,
+                  dependencies=[Depends(require_permission(PermissionCode.CATALOG_READ_ALL))])
+def admin_list_products(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
+                        db: Session = Depends(get_db)) -> Page:
+    products = db.scalars(select(Product).options(selectinload(Product.inventory))
+                          .order_by(Product.name, Product.id).offset((page - 1) * page_size)
+                          .limit(page_size)).all()
+    return Page(items=[ProductRead.model_validate(p) for p in products],
+                total=db.scalar(select(func.count()).select_from(Product)) or 0,
+                page=page, page_size=page_size)
+
+
+@admin_router.get("/products/{product_id}", response_model=ProductRead,
+                  dependencies=[Depends(require_permission(PermissionCode.CATALOG_READ_ALL))])
+def admin_get_product(product_id: uuid.UUID, db: Session = Depends(get_db)) -> Product:
+    return get_or_404(db, Product, product_id)
+
+
+@admin_router.get("/categories", response_model=list[CategoryRead],
+                  dependencies=[Depends(require_permission(PermissionCode.CATALOG_READ_ALL))])
+def admin_list_categories(db: Session = Depends(get_db)) -> list[Category]:
+    return list_categories(db)

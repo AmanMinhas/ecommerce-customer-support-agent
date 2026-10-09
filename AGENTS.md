@@ -59,6 +59,12 @@ These instructions apply throughout this repository. Follow them for every task.
 
 ## Implementation best practices
 
+- Define shared domain identifiers, such as permission codes and built-in role
+  names, as reusable string enums. Use enum members in application logic, API
+  authorization checks, and seed definitions instead of repeating string literals.
+  Use named constants for repeated fixed values that do not represent an enum.
+  Keep serialized/database values stable, and allow database-managed custom roles
+  and grants rather than restricting them to the built-in enum members.
 - Apply SOLID principles to all code changes, with the simplest design that fits
   the current requirements: keep responsibilities focused (single responsibility),
   support extension through clear boundaries (open/closed), preserve contracts

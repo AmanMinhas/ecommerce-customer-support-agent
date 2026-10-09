@@ -20,6 +20,7 @@ from app.models import (
     Shipment,
     ShipmentStatus,
 )
+from app.scripts.seed_accounts import seed_accounts
 
 CATEGORIES = [
     ("Electronics", "electronics"),
@@ -111,6 +112,8 @@ def seed() -> None:
             customers.append(customer)
             addresses.append(address)
 
+        seed_accounts(db, customers)
+
         products: list[Product] = []
         for index, name in enumerate(PRODUCT_NAMES, start=1):
             sku = f"SKU-{index:04d}"
@@ -139,7 +142,7 @@ def seed() -> None:
             address = addresses[(index - 1) % len(addresses)]
             chosen = [products[(index * 2) % len(products)], products[(index * 2 + 1) % len(products)]]
             quantities = [1, 2]
-            subtotal = sum((p.price * q for p, q in zip(chosen, quantities)), Decimal("0"))
+            subtotal = sum((p.price * q for p, q in zip(chosen, quantities)), Decimal(0))
             shipping = Decimal("0.00") if subtotal >= 100 else Decimal("8.99")
             tax = (subtotal * Decimal("0.0825")).quantize(Decimal("0.01"))
             order = Order(
@@ -207,7 +210,7 @@ def seed() -> None:
                 )
             db.add(order)
 
-    print("Seed complete: 10 customers, 30 products, and 25 lifecycle-varied orders ensured.")
+    print("Seed complete: 10 customer accounts, 2 admins, 30 products, and 25 lifecycle-varied orders ensured.")
 
 
 if __name__ == "__main__":
