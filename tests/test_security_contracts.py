@@ -178,6 +178,8 @@ def test_secret_settings_and_compose_contract(monkeypatch):
 def test_seeded_permission_values_and_identity_contract(client, seeded):
     """Refactoring identifiers must preserve stored grants and the public response."""
     expected = {
+        "chat:own",
+        "chat:manage",
         "user:access",
         "profile:read_own",
         "profile:write_own",
@@ -198,6 +200,7 @@ def test_seeded_permission_values_and_identity_contract(client, seeded):
     identity = client.get("/api/v1/auth/me", headers=headers(client)).json()
     assert identity["roles"] == ["user"]
     assert set(identity["permissions"]) == {
+        "chat:own",
         "user:access",
         "profile:read_own",
         "profile:write_own",

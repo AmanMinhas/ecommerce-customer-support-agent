@@ -18,6 +18,8 @@ class PermissionCode(StrEnum):
     CATALOG_WRITE = "catalog:write"
     INVENTORY_MANAGE = "inventory:manage"
     ACCOUNTS_MANAGE = "accounts:manage"
+    CHAT_OWN = "chat:own"
+    CHAT_MANAGE = "chat:manage"
 
 
 class BuiltinRole(StrEnum):

@@ -15,10 +15,13 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False
 
 
 def get_db() -> Generator[Session, None, None]:
+    # Request resource management: provide a session and close it on completion.
+    # Services commit writes explicitly; successful requests are not auto-committed.
     with SessionLocal() as session:
         try:
             yield session
         except Exception:
+            # Roll back uncommitted work before propagating the original error.
             session.rollback()
             raise
 

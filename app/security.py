@@ -67,6 +67,8 @@ def current_account(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
     db: Session = Depends(get_db),
 ) -> Account:
+    # Authentication validation only: require a bearer token and verify its
+    # signature, required claims, expiration, issuer, audience and account UUID.
     if credentials is None:
         raise unauthorized()
     try:
@@ -81,6 +83,8 @@ def current_account(
         account_id = uuid.UUID(claims["sub"])
     except (jwt.InvalidTokenError, ValueError, TypeError):
         raise unauthorized() from None
+    # Read the current account and role grants from the database, rather than
+    # trusting permissions embedded in a token; inactive/missing accounts get 401.
     account = db.scalar(account_query().where(Account.id == account_id))
     if account is None or not account.is_active:
         raise unauthorized()
@@ -88,6 +92,8 @@ def current_account(
 
 
 def require_permission(permission: PermissionCode) -> Callable[[Account], Account]:
+    # Dependency factory: the inner validation runs for each request using the
+    # authenticated account's database grants; this does not modify any records.
     def dependency(account: Account = Depends(current_account)) -> Account:
         if permission.value not in permissions_for(account):
             raise HTTPException(403, "Insufficient permissions")
@@ -98,6 +104,7 @@ def require_permission(permission: PermissionCode) -> Callable[[Account], Accoun
 
 def customer_account(permission: PermissionCode) -> Callable[[Account], Account]:
     def dependency(account: Account = Depends(require_permission(permission))) -> Account:
+        # Customer-profile validation only, after authentication/permission checks.
         if account.customer_id is None:
             raise HTTPException(403, "A customer profile is required")
         return account
