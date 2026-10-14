@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     jwt_expiry_minutes: int = Field(default=30, ge=1, le=1440)
     jwt_issuer: str = "ecommerce-api"
     jwt_audience: str = "ecommerce-clients"
+    gemini_api_key: SecretStr | None = None
+    gemini_model: str = "gemini-2.5-flash"
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 

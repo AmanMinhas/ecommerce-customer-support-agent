@@ -11,6 +11,7 @@ SEED_PASSWORD = "DemoPass123!"
 DEFAULT_ROLES: dict[BuiltinRole, set[PermissionCode]] = {
     BuiltinRole.USER: {
         PermissionCode.USER_ACCESS,
+        PermissionCode.CHAT_OWN,
         PermissionCode.PROFILE_READ_OWN,
         PermissionCode.PROFILE_WRITE_OWN,
         PermissionCode.ORDERS_CREATE_OWN,
@@ -19,6 +20,7 @@ DEFAULT_ROLES: dict[BuiltinRole, set[PermissionCode]] = {
     },
     BuiltinRole.ADMIN: {
         PermissionCode.ADMIN_ACCESS,
+        PermissionCode.CHAT_MANAGE,
         PermissionCode.CUSTOMERS_MANAGE,
         PermissionCode.CATALOG_READ_ALL,
         PermissionCode.CATALOG_WRITE,

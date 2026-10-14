@@ -13,10 +13,12 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.chat.domain import ConversationStatus
 from app.db import Base
 
 
@@ -229,3 +231,74 @@ class RolePermission(Base):
     permission_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("permissions.id", ondelete="CASCADE"), primary_key=True, index=True
     )
+
+class ChatConversation(TimestampMixin, Base):
+    __tablename__ = "chat_conversations"
+    __table_args__ = (
+        CheckConstraint("status IN ('ai_active','waiting_for_admin','human_active','resolved')"),
+        CheckConstraint("next_sequence > 0"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("accounts.id"), index=True)
+    customer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("customers.id"), index=True)
+    title: Mapped[str] = mapped_column(String(120), default="Support conversation")
+    status: Mapped[str] = mapped_column(
+        String(30), default=ConversationStatus.AI_ACTIVE, index=True
+    )
+    assigned_admin_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("accounts.id"), index=True
+    )
+    handoff_reason: Mapped[str | None] = mapped_column(String(500))
+    next_sequence: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+    __table_args__ = (
+        UniqueConstraint("conversation_id", "sequence"),
+        UniqueConstraint("conversation_id", "author_id", "client_id"),
+        CheckConstraint("author IN ('customer','assistant','admin','system')"),
+        CheckConstraint("length(trim(content)) > 0 AND length(content) <= 8000"),
+        CheckConstraint("sequence > 0"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("chat_conversations.id", ondelete="CASCADE"), index=True
+    )
+    sequence: Mapped[int] = mapped_column(Integer)
+    author: Mapped[str] = mapped_column(String(20))
+    author_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("accounts.id"))
+    client_id: Mapped[uuid.UUID | None]
+    reply_to_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="SET NULL"), unique=True
+    )
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ChatRun(TimestampMixin, Base):
+    __tablename__ = "chat_runs"
+    __table_args__ = (CheckConstraint("status IN ('running','completed','failed','cancelled')"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("chat_conversations.id", ondelete="CASCADE"), index=True
+    )
+    message_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="CASCADE"), unique=True
+    )
+    status: Mapped[str] = mapped_column(String(20))
+    attempts: Mapped[int] = mapped_column(Integer, default=1)
+    error_code: Mapped[str | None] = mapped_column(String(50))
+    model: Mapped[str | None] = mapped_column(String(100))
+    workflow_version: Mapped[str] = mapped_column(String(30), default="1")
+
+
+class ChatEvent(Base):
+    __tablename__ = "chat_events"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("chat_conversations.id", ondelete="CASCADE"), index=True
+    )
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("accounts.id"))
+    kind: Mapped[str] = mapped_column(String(30))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

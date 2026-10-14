@@ -9,6 +9,7 @@ from app.api.common import apply_updates, get_or_404
 from app.db import get_db
 from app.models import Category, Inventory, Product
 from app.permissions import PermissionCode
+from app.read_queries import active_product_query
 from app.schemas import (
     CategoryCreate,
     CategoryRead,
@@ -52,7 +53,7 @@ def list_products(
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    stmt = select(Product).options(selectinload(Product.inventory)).where(Product.is_active.is_(True))
+    stmt = active_product_query()
     if category:
         stmt = stmt.join(Category).where(Category.slug == category)
     if search:
@@ -70,7 +71,7 @@ def list_products(
 
 @router.get("/products/{product_id}", response_model=ProductRead)
 def get_product(product_id: uuid.UUID, db: Session = Depends(get_db)):
-    product = db.scalar(select(Product).options(selectinload(Product.inventory)).where(Product.id == product_id, Product.is_active.is_(True)))
+    product = db.scalar(active_product_query().where(Product.id == product_id))
     if not product:
         raise HTTPException(404, "Product not found")
     return product

@@ -1,13 +1,15 @@
 # Ecommerce FastAPI backend
 
 A Docker Compose development stack with FastAPI, PostgreSQL, SQLAlchemy 2, Alembic,
-and an idempotent sample-data seed command.
+an idempotent sample-data seed command, and persistent customer support chat using
+Gemini and LangGraph.
 
 ## Start the stack
 
 ```bash
 cp .env.example .env
-# Edit .env: set POSTGRES_PASSWORD, matching DATABASE_URL, and JWT_SECRET.
+# Edit .env: set POSTGRES_PASSWORD, matching DATABASE_URL, JWT_SECRET,
+# and GEMINI_API_KEY to enable AI replies.
 docker compose up --build
 ```
 
@@ -15,9 +17,36 @@ Generate a suitable local password with `openssl rand -hex 24`. Keep `.env` loca
 excluded from Git and from the Docker build context. Compose deliberately has no database
 credential fallback and will stop with a clear error if required values are missing.
 
-Compose waits for PostgreSQL to become healthy, runs all Alembic migrations, and then
-starts the API at <http://localhost:8000>. Interactive API docs are available at
+Compose waits for PostgreSQL to become healthy, runs all Alembic migrations,
+initializes LangGraph checkpoint tables, and then starts the API at
+<http://localhost:8000>. Interactive API docs are available at
 <http://localhost:8000/docs>.
+
+## Customer support chat
+
+The companion UI exposes `/customer/chat` and `/admin/chat`. Customers can ask
+about their orders, product prices, and stock, or request a person. Admins can
+claim conversations, reply, resolve them, and return them to the assistant.
+Messages and human replies survive refreshes and restarts.
+
+Set `GEMINI_API_KEY` **only in the backend environment**. `GEMINI_MODEL` defaults
+to `gemini-2.5-flash`; it can be changed to another tool-capable Gemini model
+available to your project. No OpenAI key is used. Without a Gemini key, messages
+remain saved with a retryable failure and human support still works.
+
+There is no queue or worker. Each HTTP request processes one reply; PostgreSQL
+checkpoints support explicit retry after interruption. Application chat tables
+own the visible transcript and support workflow. LangGraph owns private execution
+state in separate tables in the same database. It does not host the conversations
+for you. For a non-Compose deployment, run both setup steps before starting the API:
+
+```bash
+alembic upgrade head
+python -m app.scripts.setup_chat
+```
+
+See [chat design and operations](docs/chat.md) for API contracts, retry behavior,
+storage responsibilities, deployment limits, and evaluation cases.
 
 ## Seed sample data
 
@@ -67,6 +96,9 @@ deployment platform's secret manager rather than copying the local `.env` file.
 
 The tables are `customers`, `addresses`, `categories`, `products`, `inventory`,
 `orders`, `order_items`, `order_status_history`, `payments`, and `shipments`.
+Authentication adds the account/role tables described below. Support adds
+`chat_conversations`, `chat_messages`, `chat_runs`, and `chat_events`, plus the
+LangGraph checkpoint tables managed by its setup command.
 
 See `/docs` for the complete OpenAPI contract. All business endpoints are under
 `/api/v1`; health endpoints are `/health` and `/ready`.
@@ -146,6 +178,8 @@ inactive products are hidden. `/health` and `/ready` remain public.
 | Admin order list/detail/number lookup, payments, shipments, and history | `orders:read_all` |
 | Admin order creation/cancellation/status changes, payment creation, shipment creation/update | `orders:manage` |
 | Admin account list and activation/deactivation | `accounts:manage` |
+| Customer conversations, messages, retries, and human handoff | `chat:own` |
+| Admin support inbox, claims, replies, resolution, and AI resumption | `chat:manage` |
 
 User operations additionally require `user:access`; all admin operations require
 `admin:access` and live under `/api/v1/admin`. Account activation uses
@@ -246,6 +280,18 @@ secret, migrate a unique schema for each test, and drop that schema afterward.
 The suite covers login, invalid tokens, live permission changes, combined/custom
 roles, ownership, admin operations, seed preservation, constraints, and migration
 upgrade/downgrade.
+
+Chat tests use fake model responses with real isolated PostgreSQL checkpoints.
+They cover grounded tool data, concurrent sends, interrupted execution, completed
+checkpoint replay, human takeover, permission revocation, and migration rollback.
+No Gemini request is made by the automated suite. Migration `0003` grants chat
+capabilities to the existing built-in roles once; seed reruns preserve subsequent
+permission changes.
+
+`alembic downgrade 0002` removes all application chat tables and chat grants,
+permanently losing the transcript and support records. Commerce and account data
+remain. LangGraph tables are deliberately left intact; see the retention and
+rollback notes in [the chat guide](docs/chat.md).
 
 `alembic downgrade 0001` removes all five authorization tables and permanently
 loses account credentials and role/permission assignments; customer/order data is

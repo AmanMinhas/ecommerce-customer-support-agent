@@ -5,7 +5,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app.api.common import get_or_404
 from app.db import get_db
@@ -23,6 +23,7 @@ from app.models import (
     ShipmentStatus,
 )
 from app.permissions import PermissionCode
+from app.read_queries import order_query
 from app.schemas import (
     OrderCreate,
     OrderRead,
@@ -52,13 +53,7 @@ ALLOWED_TRANSITIONS = {
 
 def load_order(db: Session, clause) -> Order:
     order = db.scalar(
-        select(Order)
-        .options(
-            selectinload(Order.items),
-            selectinload(Order.payments),
-            selectinload(Order.shipments),
-        )
-        .where(clause)
+        order_query().where(clause)
     )
     if not order:
         raise HTTPException(404, "Order not found")
@@ -156,9 +151,7 @@ def list_orders(
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    stmt = select(Order).options(
-        selectinload(Order.items), selectinload(Order.payments), selectinload(Order.shipments)
-    )
+    stmt = order_query()
     if customer_id:
         stmt = stmt.where(Order.customer_id == customer_id)
     if order_status:
